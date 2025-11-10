@@ -1,3 +1,6 @@
+# Try to cause an immediate error to see if script executes
+raise Exception("TEST: Script is executing - this should appear in logs")
+
 import sys
 import os
 

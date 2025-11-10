@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 print("Starting app.py")
 try:
     import streamlit as st
@@ -9,14 +10,21 @@ try:
     print("All imports successful")
 except Exception as e:
     print(f"Import error: {e}")
-    raise
+    import sys
+    sys.exit(1)
 
 print("Setting page config")
-st.set_page_config(
-    page_title="PDF Label Cropper",
-    page_icon="📄",
-    layout="wide"
-)
+try:
+    st.set_page_config(
+        page_title="PDF Label Cropper",
+        page_icon="📄",
+        layout="wide"
+    )
+    print("Page config set")
+except Exception as e:
+    print(f"Page config error: {e}")
+    import sys
+    sys.exit(1)
 
 print("Page config set")
 st.title("📄 PDF Label Cropper")

@@ -18,7 +18,70 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📄 PDF Label Cropper")
+# Initialize settings in session state
+if 'threshold' not in st.session_state:
+    st.session_state.threshold = 200
+if 'padding_percent' not in st.session_state:
+    st.session_state.padding_percent = 2
+if 'dpi' not in st.session_state:
+    st.session_state.dpi = 300
+if 'aspect_lock' not in st.session_state:
+    st.session_state.aspect_lock = True
+
+# Settings modal
+@st.dialog("Processing Settings")
+def settings_modal():
+    st.header("⚙️ Processing Parameters")
+    
+    # Threshold
+    st.session_state.threshold = st.slider(
+        "Threshold",
+        min_value=150,
+        max_value=250,
+        value=st.session_state.threshold,
+        help="Adjust detection sensitivity"
+    )
+    
+    # Padding
+    st.session_state.padding_percent = st.slider(
+        "Padding %",
+        min_value=0,
+        max_value=10,
+        value=st.session_state.padding_percent,
+        help="Add padding around detected label"
+    )
+    
+    # DPI
+    st.session_state.dpi = st.select_slider(
+        "DPI",
+        options=[150, 200, 250, 300, 350, 400, 450, 500, 550, 600],
+        value=st.session_state.dpi,
+        help="Resolution for PDF rendering"
+    )
+    
+    # Aspect lock
+    st.session_state.aspect_lock = st.checkbox(
+        "Lock 6:4/4:6 Aspect (auto)",
+        value=st.session_state.aspect_lock,
+        help="Automatically adjust to standard label aspect ratio"
+    )
+    
+    # Check barcode availability
+    barcode_available = PDFLabelProcessor.barcode_available()
+    if not barcode_available:
+        st.warning("⚠️ ZBar not available. Barcode-based detection disabled.")
+    
+    if st.button("✅ Apply Settings", use_container_width=True):
+        st.rerun()
+
+# Header with settings button
+col_title, col_settings = st.columns([4, 1])
+with col_title:
+    st.title("📄 PDF Label Cropper")
+with col_settings:
+    if st.button("⚙️ Settings", use_container_width=True):
+        settings_modal()
+
 st.markdown("Automatically detect and crop label regions from PDF documents")
 
 # Initialize session state
@@ -31,42 +94,7 @@ if 'preview_img' not in st.session_state:
 if 'crop_info' not in st.session_state:
     st.session_state.crop_info = None
 
-# Sidebar for parameters
-st.sidebar.header("⚙️ Processing Parameters")
 
-threshold = st.sidebar.slider(
-    "Threshold",
-    min_value=150,
-    max_value=250,
-    value=200,
-    help="Adjust detection sensitivity"
-)
-
-padding_percent = st.sidebar.slider(
-    "Padding %",
-    min_value=0,
-    max_value=10,
-    value=2,
-    help="Add padding around detected label"
-)
-
-dpi = st.sidebar.select_slider(
-    "DPI",
-    options=[150, 200, 250, 300, 350, 400, 450, 500, 550, 600],
-    value=300,
-    help="Resolution for PDF rendering"
-)
-
-aspect_lock = st.sidebar.checkbox(
-    "Lock 6:4/4:6 Aspect (auto)",
-    value=True,
-    help="Automatically adjust to standard label aspect ratio"
-)
-
-# Check barcode availability
-barcode_available = PDFLabelProcessor.barcode_available()
-if not barcode_available:
-    st.sidebar.warning("⚠️ ZBar not available. Barcode-based detection disabled.")
 
 # File upload
 uploaded_file = st.file_uploader(
@@ -107,10 +135,10 @@ if process_button and uploaded_file:
             
             # Initialize processor
             processor = PDFLabelProcessor(
-                threshold=threshold,
-                padding_percent=padding_percent,
-                dpi=dpi,
-                aspect_lock=aspect_lock
+                threshold=st.session_state.threshold,
+                padding_percent=st.session_state.padding_percent,
+                dpi=st.session_state.dpi,
+                aspect_lock=st.session_state.aspect_lock
             )
             
             # Process PDF
@@ -169,7 +197,7 @@ if not uploaded_file:
     ### 📖 How to Use
     
     1. **Upload** a PDF file containing a label
-    2. **Adjust** processing parameters in the sidebar if needed
+    2. **Click** ⚙️ Settings to adjust processing parameters if needed
     3. **Click** "Detect & Crop" to process the document
     4. **Download** the cropped label image
     

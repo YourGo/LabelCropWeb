@@ -35,7 +35,7 @@ if uploaded_file is not None:
             dpi = st.selectbox("DPI Quality", [150, 200, 300, 400, 600], index=2,
                              help="Higher DPI = better quality, larger file")
     
-    if st.button("🔍 Process Label", type="primary", use_container_width=True):
+    if st.button("🔍 Process Label", type="primary", width='stretch'):
         with st.spinner("Processing PDF... This may take a moment."):
             try:
                 pdf_bytes = uploaded_file.read()
@@ -69,13 +69,13 @@ if st.session_state.processed:
     with tab1:
         st.subheader("Cropped Label Result")
         rgb_cropped = cv2.cvtColor(st.session_state.cropped_img, cv2.COLOR_BGR2RGB)
-        st.image(rgb_cropped, use_container_width=True)
+        st.image(rgb_cropped, width='stretch')
     
     with tab2:
         st.subheader("Detection Preview")
         st.caption("Green rectangle shows the detected label area")
         rgb_preview = cv2.cvtColor(st.session_state.preview_img, cv2.COLOR_BGR2RGB)
-        st.image(rgb_preview, use_container_width=True)
+        st.image(rgb_preview, width='stretch')
     
     st.divider()
     
@@ -94,7 +94,7 @@ if st.session_state.processed:
             data=png_buffer,
             file_name="cropped_label.png",
             mime="image/png",
-            use_container_width=True
+            width='stretch'
         )
     
     with col2:
@@ -107,7 +107,7 @@ if st.session_state.processed:
             data=pdf_buffer,
             file_name="cropped_label.pdf",
             mime="application/pdf",
-            use_container_width=True
+            width='stretch'
         )
 
 st.divider()

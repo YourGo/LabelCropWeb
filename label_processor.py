@@ -2,12 +2,16 @@ import fitz
 import cv2
 import numpy as np
 from PIL import Image
+import logging
+
 try:
     from pyzbar.pyzbar import decode as zbar_decode
     PYZBAR_AVAILABLE = True
 except ImportError:
     zbar_decode = None
     PYZBAR_AVAILABLE = False
+
+logging.basicConfig(level=logging.INFO)
 
 
 class PDFLabelProcessor:
@@ -18,6 +22,16 @@ class PDFLabelProcessor:
         self.aspect_lock = aspect_lock
         self.cropped_img = None
         self.original_img = None
+        self._barcode_warning_shown = False
+        
+        if not PYZBAR_AVAILABLE:
+            logging.warning("ZBar/pyzbar not available - barcode-based orientation detection and anchoring will be disabled. Detection will rely on edge-based methods only.")
+    
+    def _clamp_odd(self, val, min_val=3, max_val=101):
+        """Ensure kernel size is odd and within reasonable bounds for morphology operations.
+        Odd sizes ensure symmetric dilation/erosion."""
+        val = max(min_val, min(max_val, val))
+        return val if val % 2 == 1 else val + 1
 
     def find_label_border(self, img):
         """Detect a thin rectangular border surrounding the label.
@@ -164,7 +178,10 @@ class PDFLabelProcessor:
         cv2.normalize(edge_mag, edge_norm, 0, 255, cv2.NORM_MINMAX)
         thresh = cv2.threshold(edge_norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
 
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        H, W = img.shape[:2]
+        min_dim = min(H, W)
+        k = self._clamp_odd(max(5, int(round(min_dim * 0.0125))))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
         morphed = cv2.dilate(thresh, kernel, iterations=2)
 
         contours, _ = cv2.findContours(morphed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -560,11 +577,24 @@ class PDFLabelProcessor:
         doc.close()
         return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
+    def process_image(self, image_bytes):
+        """Process image bytes (JPG/PNG) using the same detection logic.
+        Useful for direct image uploads instead of PDFs."""
+        arr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("Could not decode image bytes")
+        self.original_img = img
+        return self._process_core(img.copy())
+    
     def process_pdf(self, pdf_bytes):
         """Process PDF using the EXACT original detection logic from detect_crop"""
         self.original_img = self.pdf_to_image(pdf_bytes, dpi=self.dpi)
-        img = self.original_img.copy()
-        
+        return self._process_core(self.original_img.copy())
+    
+    def _process_core(self, img):
+        """Core detection and cropping logic shared by process_pdf and process_image.
+        Preserves all original detection methods and refinement steps."""
         x = y = w = h = 0
         used_border = False
         label_prefix = "Detected"
@@ -589,7 +619,10 @@ class PDFLabelProcessor:
         
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         thresh = cv2.threshold(gray, self.threshold, 255, cv2.THRESH_BINARY_INV)[1]
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 20))
+        H, W = img.shape[:2]
+        min_dim = min(H, W)
+        k = self._clamp_odd(max(7, int(round(min_dim * 0.0167))))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
         thresh = cv2.dilate(thresh, kernel, iterations=2)
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         

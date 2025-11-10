@@ -1,4 +1,6 @@
-print("Python script is executing!")
-print("Python version:", __import__("sys").version)
-print("Working directory:", __import__("os").getcwd())
-print("Script completed successfully!")
+import streamlit as st
+
+st.write("Python script is executing!")
+st.write("Python version:", __import__("sys").version)
+st.write("Working directory:", __import__("os").getcwd())
+st.write("Script completed successfully!")

@@ -11,6 +11,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# Hide Streamlit's default header (top-right buttons)
+st.markdown("""
+<style>
+.stAppHeader {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📄 PDF Label Cropper")
 st.markdown("Automatically detect and crop label regions from PDF documents")
 

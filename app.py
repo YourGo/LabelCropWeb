@@ -1,3 +1,4 @@
+print("Starting app.py")
 try:
     import streamlit as st
     import cv2
@@ -10,12 +11,14 @@ except Exception as e:
     print(f"Import error: {e}")
     raise
 
+print("Setting page config")
 st.set_page_config(
     page_title="PDF Label Cropper",
     page_icon="📄",
     layout="wide"
 )
 
+print("Page config set")
 st.title("📄 PDF Label Cropper")
 st.markdown("Upload a PDF label document to automatically detect and crop the label area.")
 

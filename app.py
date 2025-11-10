@@ -1,30 +1,43 @@
 #!/usr/bin/env python3
-print("Starting app.py")
+print("Script started successfully")
+print("Python version:", __import__('sys').version)
+print("Working directory:", __import__('os').getcwd())
+
 try:
+    print("Attempting imports...")
     import streamlit as st
+    print("✓ streamlit imported")
     import cv2
+    print("✓ cv2 imported")
     import numpy as np
+    print("✓ numpy imported")
     from PIL import Image
+    print("✓ PIL imported")
     import io
+    print("✓ io imported")
+    import fitz
+    print("✓ fitz imported")
+    from pyzbar import pyzbar
+    print("✓ pyzbar imported")
     from label_processor import PDFLabelProcessor
+    print("✓ label_processor imported")
     print("All imports successful")
 except Exception as e:
     print(f"Import error: {e}")
+    import traceback
+    traceback.print_exc()
     import sys
     sys.exit(1)
 
-print("Setting page config")
-try:
-    st.set_page_config(
-        page_title="PDF Label Cropper",
-        page_icon="📄",
-        layout="wide"
-    )
-    print("Page config set")
-except Exception as e:
-    print(f"Page config error: {e}")
-    import sys
-    sys.exit(1)
+print("Setting page config...")
+st.set_page_config(
+    page_title="PDF Label Cropper",
+    page_icon="📄",
+    layout="wide"
+)
+print("Page config set successfully")
+
+# Rest of the app...
 
 print("Page config set")
 st.title("📄 PDF Label Cropper")

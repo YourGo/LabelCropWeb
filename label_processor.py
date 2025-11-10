@@ -19,31 +19,14 @@ class PDFLabelProcessor:
         self.cropped_img = None
         self.original_img = None
 
-    def pdf_to_image(self, pdf_bytes, dpi=300):
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        page = doc[0]
-        zoom = dpi / 72.0
-        mat = fitz.Matrix(zoom, zoom)
-        get_pm = getattr(page, "get_pixmap", None)
-        if get_pm is None:
-            get_pm = getattr(page, "getPixmap", None)
-        if get_pm is None:
-            doc.close()
-            raise AttributeError("PyMuPDF Page has no get_pixmap or getPixmap")
-        pix = get_pm(matrix=mat, alpha=False)
-        width = getattr(pix, "width", getattr(pix, "w", None))
-        height = getattr(pix, "height", getattr(pix, "h", None))
-        if width is None or height is None:
-            doc.close()
-            raise AttributeError("Pixmap missing width/height attributes")
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(height, width, 3)
-        doc.close()
-        return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-
     def find_label_border(self, img):
+        """Detect a thin rectangular border surrounding the label.
+        Returns (x,y,w,h) if found, else None.
+        """
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 80, 200)
         edges = cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=1)
+
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
@@ -78,6 +61,9 @@ class PDFLabelProcessor:
         return best
 
     def detect_cut_line_y(self, img):
+        """Detect a horizontal cut/dashed line and return its y coordinate.
+        Returns None if not found. Targets long near-horizontal lines.
+        """
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         binv = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
         H, W = gray.shape[:2]
@@ -105,6 +91,10 @@ class PDFLabelProcessor:
         return best_y
 
     def _align_rect_to_vertical_edges(self, img, rect):
+        """Adjust the top of the rect downward if the top band has weak
+        vertical-edge energy (likely header text), keeping height fixed.
+        Returns (x,y,w,h). Safe no-op when signals are weak.
+        """
         x, y, w, h = rect
         H, W = img.shape[:2]
         roi = img[y:y+h, x:x+w]
@@ -146,6 +136,11 @@ class PDFLabelProcessor:
         return x, ny, w, h
 
     def _anchor_rect_to_barcodes(self, img, rect, margin_frac=0.08):
+        """Ensure the rect stays around decoded barcodes: do not place the
+        bottom above the barcodes. Only enforces bottom coverage and does not
+        push the top downward (to avoid trimming label header). Returns
+        (x,y,w,h). No-op if no barcodes found.
+        """
         x, y, w, h = rect
         H, W = img.shape[:2]
         brect = self.find_largest_barcode_rect(img, None)
@@ -158,7 +153,78 @@ class PDFLabelProcessor:
             ny = min(max(0, bot_anchor - h), max(0, H - h))
         return x, ny, w, h
 
+    def find_label_region(self, img):
+        """Find the approximate region where the actual shipping label is"""
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        sobelx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        edge_mag = cv2.convertScaleAbs(np.abs(sobelx) + 0.5 * np.abs(sobely))
+
+        edge_norm = np.empty_like(edge_mag)
+        cv2.normalize(edge_mag, edge_norm, 0, 255, cv2.NORM_MINMAX)
+        thresh = cv2.threshold(edge_norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        morphed = cv2.dilate(thresh, kernel, iterations=2)
+
+        contours, _ = cv2.findContours(morphed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            return None
+        
+        largest = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest)
+        
+        pad = 20
+        x = max(0, x - pad)
+        y = max(0, y - pad)
+        w = min(img.shape[1] - x, w + 2*pad)
+        h = min(img.shape[0] - y, h + 2*pad)
+        
+        return (x, y, w, h)
+
+    def detect_text_orientation(self, img, label_region=None):
+        """Detect text orientation focusing on the label region"""
+        if label_region:
+            x, y, w, h = label_region
+            img = img[y:y+h, x:x+w]
+        
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        horizontal_score = 0
+        vertical_score = 0
+        text_regions = []
+        
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = w * h
+            
+            if 100 < area < 50000:
+                aspect_ratio = w / h if h > 0 else 0
+                weight = np.sqrt(area)
+                
+                if aspect_ratio > 2.5:
+                    horizontal_score += weight
+                    text_regions.append(('horizontal', w, h, area))
+                elif aspect_ratio < 0.4:
+                    vertical_score += weight
+                    text_regions.append(('vertical', w, h, area))
+        
+        if len(text_regions) > 0:
+            horizontal_count = sum(1 for r in text_regions if r[0] == 'horizontal')
+            vertical_count = sum(1 for r in text_regions if r[0] == 'vertical')
+            
+            horizontal_score *= (1 + horizontal_count * 0.1)
+            vertical_score *= (1 + vertical_count * 0.1)
+        
+        return horizontal_score, vertical_score
+
     def _edge_orientation_strength(self, img, label_region=None):
+        """Return (vertical_edge_sum, horizontal_edge_sum) inside ROI.
+        Vertical edges are measured with dx (Sobel x), horizontal with dy.
+        """
         if label_region:
             x, y, w, h = label_region
             img = img[y:y+h, x:x+w]
@@ -169,7 +235,33 @@ class PDFLabelProcessor:
         vy = float(np.sum(np.abs(sy)))
         return vx, vy
 
+    def score_barcodes(self, img, label_region=None):
+        """Score orientation by decoding barcodes in ROI if pyzbar is available.
+        Returns (score, count). Higher score indicates more likely upright label.
+        Prefers tall barcode bounding boxes (bars vertical when upright).
+        """
+        if label_region:
+            x, y, w, h = label_region
+            img = img[y:y+h, x:x+w]
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if not PYZBAR_AVAILABLE or zbar_decode is None:
+            return 0.0, 0
+        try:
+            codes = zbar_decode(gray)
+        except Exception:
+            codes = []
+        score = 0.0
+        for c in codes:
+            x, y, w, h = c.rect
+            area = float(max(w, 1) * max(h, 1))
+            aspect = (h + 1e-3) / (w + 1e-3)
+            score += area * min(aspect, 4.0)
+        return score, len(codes)
+
     def detect_barcode_orientation(self, img, label_region=None):
+        """Return 'vertical', 'horizontal', or 'unknown' for barcodes in ROI.
+        Uses pyzbar if available; falls back to edge orientation if none found.
+        """
         if label_region:
             x, y, w, h = label_region
             img = img[y:y+h, x:x+w]
@@ -197,6 +289,11 @@ class PDFLabelProcessor:
         return 'unknown'
 
     def _adjust_rect_to_aspect(self, rect, img_shape, target_ratio):
+        """Expand rect minimally so it has `target_ratio` (w/h) and stays in bounds.
+        Keeps the original rect fully contained.
+        rect: (x, y, w, h)
+        img_shape: (H, W, C)
+        """
         x, y, w, h = rect
         H, W = img_shape[0], img_shape[1]
         cur_ratio = w / max(h, 1)
@@ -206,17 +303,25 @@ class PDFLabelProcessor:
         else:
             new_w = w
             new_h = int(round(w / target_ratio))
+
         min_x = max(0, x + w - new_w)
         max_x = min(x, W - new_w)
         new_x = min(max(int(round(x + (w - new_w) / 2)), min_x), max_x)
+
         min_y = max(0, y + h - new_h)
         max_y = min(y, H - new_h)
         new_y = min(max(int(round(y + (h - new_h) / 2)), min_y), max_y)
+
         new_x = max(0, min(new_x, max(0, W - new_w)))
         new_y = max(0, min(new_y, max(0, H - new_h)))
+
         return new_x, new_y, new_w, new_h
 
     def find_largest_barcode_rect(self, img, label_region=None):
+        """Return absolute union rect (x,y,w,h) for all decoded barcodes, or None.
+        Backwards-compatible name; now returns the bounding box of all barcodes
+        to better center multi-barcode labels.
+        """
         if not PYZBAR_AVAILABLE or zbar_decode is None:
             return None
         x0 = y0 = 0
@@ -238,6 +343,13 @@ class PDFLabelProcessor:
         return (x0 + left, y0 + top, right - left, bottom - top)
 
     def second_pass_refine_rect(self, crop):
+        """Refine crop on the cropped label image and return a tighter rect
+        (rx, ry, rw, rh) relative to `crop`.
+        Strategy:
+        - If a border exists inside the crop, trim to inside the border (with a small inset).
+        - Otherwise, binarize + morphology, union of sufficiently large components,
+          and return that bounding box with a small safety margin.
+        """
         H, W = crop.shape[:2]
         b = self.find_label_border(crop)
         if b is not None:
@@ -248,6 +360,7 @@ class PDFLabelProcessor:
             rw = max(1, min(W - rx, bw - 2 * inset))
             rh = max(1, min(H - ry, bh - 2 * inset))
             return rx, ry, rw, rh
+
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         binv = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
         k = max(5, int(round(min(H, W) * 0.015)))
@@ -283,6 +396,9 @@ class PDFLabelProcessor:
         return ii[y2, x2] - ii[y, x2] - ii[y2, x] + ii[y, x]
 
     def _refine_rect_density(self, img, bin_mask, orientation, rect):
+        """Shift rect locally to maximize content density + oriented edges.
+        Keeps size fixed; returns new (x,y,w,h).
+        """
         x, y, w, h = rect
         H, W = img.shape[:2]
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -293,6 +409,7 @@ class PDFLabelProcessor:
         edge = cv2.convertScaleAbs(np.abs(sob))
         ii_bin = cv2.integral(bin_mask.astype(np.uint8))
         ii_edge = cv2.integral(edge)
+
         max_dx = max(2, int(round(w * 0.08)))
         max_dy = max(2, int(round(h * 0.08)))
         step = max(2, int(round(min(w, h) * 0.02)))
@@ -312,6 +429,10 @@ class PDFLabelProcessor:
         return best[0], best[1], w, h
 
     def _nudge_rect_by_strips(self, bin_mask, rect, img_shape):
+        """Shift the rect if 10% strips outside have content being cut off.
+        Keeps size fixed; returns new (x,y,w,h).
+        Uses binary mask `bin_mask` (255=content) to measure densities.
+        """
         x, y, w, h = rect
         H, W = img_shape[:2]
         ii = cv2.integral(bin_mask.astype(np.uint8))
@@ -334,6 +455,7 @@ class PDFLabelProcessor:
         right_den = strip_density(x + w, y, mx, h)
         top_den = strip_density(x, y - my, w, my)
         bot_den = strip_density(x, y + h, w, my)
+
         eps = 0.01
         dx = 0
         dy = 0
@@ -341,15 +463,21 @@ class PDFLabelProcessor:
             dx = -min(mx, int(round((left_den - right_den) * mx * 2)))
         elif right_den > left_den + eps:
             dx = min(mx, int(round((right_den - left_den) * mx * 2)))
+
         if top_den > bot_den + eps:
             dy = -min(my, int(round((top_den - bot_den) * my * 2)))
         elif bot_den > top_den + eps:
             dy = min(my, int(round((bot_den - top_den) * my * 2)))
+
         nx = min(max(0, x + dx), max(0, W - w))
         ny = min(max(0, y + dy), max(0, H - h))
         return nx, ny, w, h
 
     def _center_rect_on_content(self, bin_mask, rect, img_shape, expand_pct=0.10):
+        """Recenter the rectangle so its center matches the content centroid
+        within a slightly expanded analysis area around the current rect.
+        Keeps size fixed; returns (x,y,w,h).
+        """
         x, y, w, h = rect
         H, W = img_shape[:2]
         pad_x = max(1, int(round(w * expand_pct)))
@@ -376,6 +504,10 @@ class PDFLabelProcessor:
         return nx, ny, w, h
 
     def _center_rect_horizontal(self, bin_mask, rect, img_shape, expand_pct=0.10):
+        """Recenter horizontally only to the content centroid within a slightly
+        expanded window. Keeps top/bottom as-is to preserve header exclusion.
+        Returns (x,y,w,h).
+        """
         x, y, w, h = rect
         H, W = img_shape[:2]
         pad_x = max(1, int(round(w * expand_pct)))
@@ -397,12 +529,45 @@ class PDFLabelProcessor:
         nx = min(max(0, nx), max(0, W - w))
         return nx, y, w, h
 
+    def rotate_image(self, img, angle):
+        """Rotate image by specified angle (90, 180, 270)"""
+        if angle == 90:
+            return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        elif angle == 180:
+            return cv2.rotate(img, cv2.ROTATE_180)
+        elif angle == 270:
+            return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return img
+
+    def pdf_to_image(self, pdf_bytes, dpi=300):
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[0]
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        get_pm = getattr(page, "get_pixmap", None)
+        if get_pm is None:
+            get_pm = getattr(page, "getPixmap", None)
+        if get_pm is None:
+            doc.close()
+            raise AttributeError("PyMuPDF Page has no get_pixmap or getPixmap")
+        pix = get_pm(matrix=mat, alpha=False)
+        width = getattr(pix, "width", getattr(pix, "w", None))
+        height = getattr(pix, "height", getattr(pix, "h", None))
+        if width is None or height is None:
+            doc.close()
+            raise AttributeError("Pixmap missing width/height attributes")
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(height, width, 3)
+        doc.close()
+        return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
     def process_pdf(self, pdf_bytes):
+        """Process PDF using the EXACT original detection logic from detect_crop"""
         self.original_img = self.pdf_to_image(pdf_bytes, dpi=self.dpi)
         img = self.original_img.copy()
         
         x = y = w = h = 0
         used_border = False
+        label_prefix = "Detected"
         
         border_rect = self.find_label_border(img)
         if border_rect is not None:
@@ -412,6 +577,7 @@ class PDFLabelProcessor:
             y = max(0, by + shrink)
             w = max(1, min(img.shape[1] - x, bw - 2 * shrink))
             h = max(1, min(img.shape[0] - y, bh - 2 * shrink))
+
             pad_x = max(1, int(round(w * 0.05)))
             pad_y = max(1, int(round(h * 0.05)))
             x = max(0, x - pad_x)
@@ -419,6 +585,7 @@ class PDFLabelProcessor:
             w = min(img.shape[1] - x, w + 2 * pad_x)
             h = min(img.shape[0] - y, h + 2 * pad_y)
             used_border = True
+            label_prefix = "Detected (border+10%)"
         
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         thresh = cv2.threshold(gray, self.threshold, 255, cv2.THRESH_BINARY_INV)[1]
@@ -427,10 +594,11 @@ class PDFLabelProcessor:
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if not contours:
-            raise ValueError("No label content detected.")
+            raise ValueError("No label content detected. Try adjusting the threshold.")
         
         img_area = img.shape[0] * img.shape[1]
         valid_contours = []
+        
         for c in contours:
             area = cv2.contourArea(c)
             area_ratio = area / img_area
@@ -440,7 +608,7 @@ class PDFLabelProcessor:
         if not valid_contours:
             valid_contours = [c for c in contours if cv2.contourArea(c) / img_area < 0.95]
             if not valid_contours:
-                raise ValueError("Could not identify label region.")
+                raise ValueError("Could not identify label region. Try adjusting threshold.")
         
         if not used_border:
             contour = max(valid_contours, key=cv2.contourArea)
@@ -487,6 +655,7 @@ class PDFLabelProcessor:
                 up = max(1, int(round(0.02 * h)))
                 y = max(min_top, y - up)
             x, y, w, h = self._center_rect_horizontal(thresh, (x, y, w, h), img.shape, expand_pct=0.10)
+
             add_px = max(1, int(round(w * 0.05)))
             add_py = max(1, int(round(h * 0.05)))
             x = max(0, x - add_px)
@@ -510,12 +679,16 @@ class PDFLabelProcessor:
         preview = img.copy()
         cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), max(5, int(min(w, h) * 0.005)))
         
-        return self.cropped_img, preview, (x, y, w, h)
-
-    def save_to_pdf(self, output_path):
-        if self.cropped_img is None:
-            raise ValueError("No cropped image available.")
+        text = f"{label_prefix}: {w}x{h}px"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = max(0.5, min(w, h) / 1000)
+        thickness = max(1, int(font_scale * 2))
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        text_x = x + (w - text_size[0]) // 2
+        text_y = max(y - 10, text_size[1] + 10)
         
-        rgb_img = cv2.cvtColor(self.cropped_img, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(rgb_img)
-        pil_img.save(output_path, "PDF", resolution=100.0)
+        cv2.rectangle(preview, (text_x - 5, text_y - text_size[1] - 5), 
+                     (text_x + text_size[0] + 5, text_y + 5), (0, 255, 0), -1)
+        cv2.putText(preview, text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness)
+        
+        return self.cropped_img, preview, (x, y, w, h)

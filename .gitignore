@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+test_env/
+.local/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package managers
+uv.lock
+
+# Platform-specific
+.replit
+replit.md
+
+# Development artifacts
+attached_assets/
+main.py
+
+# md
+Plan.md

@@ -26,6 +26,11 @@ class PDFLabelProcessor:
         
         if not PYZBAR_AVAILABLE:
             logging.warning("ZBar/pyzbar not available - barcode-based orientation detection and anchoring will be disabled. Detection will rely on edge-based methods only.")
+
+    @staticmethod
+    def barcode_available() -> bool:
+        """Expose barcode availability to callers (e.g., web UI)."""
+        return PYZBAR_AVAILABLE and (zbar_decode is not None)
     
     def _clamp_odd(self, val, min_val=3, max_val=101):
         """Ensure kernel size is odd and within reasonable bounds for morphology operations.

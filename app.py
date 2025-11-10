@@ -20,7 +20,7 @@ if 'processed' not in st.session_state:
     st.session_state.preview_img = None
     st.session_state.crop_info = None
 
-uploaded_file = st.file_uploader("Choose a PDF file", type=['pdf'])
+uploaded_file = st.file_uploader("Choose a PDF or image", type=['pdf','png','jpg','jpeg'])
 
 if uploaded_file is not None:
     with st.expander("⚙️ Advanced Settings (Optional)", expanded=False):
@@ -32,7 +32,7 @@ if uploaded_file is not None:
             padding = st.slider("Padding %", 0, 10, 2,
                               help="Extra space around detected label")
         with col3:
-            dpi = st.selectbox("DPI Quality", [150, 200, 300, 400, 600], index=2,
+            dpi = st.selectbox("DPI (PDF only)", [150, 200, 300, 400, 600], index=2,
                              help="Higher DPI = better quality, larger file")
     
     if st.button("🔍 Process Label", type="primary", width='stretch'):
@@ -123,3 +123,4 @@ with st.expander("ℹ️ How it works"):
     
     The system automatically determines the best approach based on the label style.
     """)
+

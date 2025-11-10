@@ -1,9 +1,14 @@
-import streamlit as st
-import cv2
-import numpy as np
-from PIL import Image
-import io
-from label_processor import PDFLabelProcessor
+try:
+    import streamlit as st
+    import cv2
+    import numpy as np
+    from PIL import Image
+    import io
+    from label_processor import PDFLabelProcessor
+    print("All imports successful")
+except Exception as e:
+    print(f"Import error: {e}")
+    raise
 
 st.set_page_config(
     page_title="PDF Label Cropper",

@@ -6,19 +6,19 @@ import io
 import fitz  # PyMuPDF for PDF preview
 from label_processor import PDFLabelProcessor
 
-# Helper function for Lucide icons (CSS-only version)
-def lucide_icon(name, size=16, color="currentColor"):
-    return f'<i class="lucide lucide-{name}" style="width: {size}px; height: {size}px; color: {color};"></i>'
+# Helper function for Font Awesome icons (more reliable than Lucide in Streamlit)
+def fa_icon(name, style="solid", size="sm", color="currentColor"):
+    return f'<i class="fa-{style} fa-{name} fa-{size}" style="color: {color};"></i>'
 
 st.set_page_config(
     page_title="PDF Label Cropper",
-    page_icon=lucide_icon("file-text"),
+    page_icon="📄",
     layout="wide"
 )
 
-# Add Lucide icons CSS (static version - no JavaScript needed)
+# Add Font Awesome CSS
 st.markdown("""
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-static@0.344.0/font/lucide.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 """, unsafe_allow_html=True)
 
 # Hide Streamlit's default header (top-right buttons)
@@ -77,7 +77,7 @@ if 'aspect_lock' not in st.session_state:
 # Settings modal
 @st.dialog("Processing Settings")
 def settings_modal():
-    st.header(f"{lucide_icon('settings')} Processing Parameters")
+    st.header(f"{fa_icon('cog')} Processing Parameters")
     
     # Threshold with help
     col_thresh, col_help = st.columns([3, 1])
@@ -90,7 +90,7 @@ def settings_modal():
             help="Adjust detection sensitivity"
         )
     with col_help:
-        with st.popover(lucide_icon("info")):
+        with st.popover(fa_icon("info-circle")):
             st.markdown("""
             **Threshold**: Controls how sensitive the label detection is.
             - Lower values (150-180): More sensitive, may detect noise
@@ -109,7 +109,7 @@ def settings_modal():
             help="Add padding around detected label"
         )
     with col_help:
-        with st.popover(lucide_icon("info")):
+        with st.popover(fa_icon("info-circle")):
             st.markdown("""
             **Padding**: Adds extra space around the detected label.
             - 0%: Exact crop (may cut off edges)
@@ -127,7 +127,7 @@ def settings_modal():
             help="Resolution for PDF rendering"
         )
     with col_help:
-        with st.popover(lucide_icon("info")):
+        with st.popover(fa_icon("info-circle")):
             st.markdown("""
             **DPI**: Image resolution for processing.
             - 150-200: Fast, good for simple labels
@@ -144,7 +144,7 @@ def settings_modal():
             help="Automatically adjust to standard label aspect ratio"
         )
     with col_help:
-        with st.popover(lucide_icon("info")):
+        with st.popover(fa_icon("info-circle")):
             st.markdown("""
             **Aspect Lock**: Forces standard shipping label ratios.
             - 6:4 (1.5:1): Horizontal labels
@@ -155,17 +155,17 @@ def settings_modal():
     # Check barcode availability
     barcode_available = PDFLabelProcessor.barcode_available()
     if not barcode_available:
-        st.warning(f"{lucide_icon('alert-triangle')} ZBar not available. Barcode-based detection disabled.")
+        st.warning(f"{fa_icon('exclamation-triangle')} ZBar not available. Barcode-based detection disabled.")
     
-    if st.button(f"{lucide_icon('check-circle')} Apply Settings", use_container_width=True):
+    if st.button(f"{fa_icon('check-circle')} Apply Settings", use_container_width=True):
         st.rerun()
 
 # Header with settings button
 col_title, col_settings = st.columns([4, 1])
 with col_title:
-    st.title(f"{lucide_icon('file-text')} PDF Label Cropper")
+    st.title(f"{fa_icon('file-alt')} PDF Label Cropper")
 with col_settings:
-    if st.button(f"{lucide_icon('settings')} Settings", use_container_width=True):
+    if st.button(f"{fa_icon('cog')} Settings", use_container_width=True):
         settings_modal()
 
 st.markdown("Automatically detect and crop label regions from PDF documents")
@@ -194,10 +194,10 @@ if uploaded_file is not None:
     file_size = len(uploaded_file.getvalue()) / (1024 * 1024)  # Size in MB
     
     if file_size > 50:
-        st.error(f"{lucide_icon('x-circle')} File too large: {file_size:.1f}MB (max 50MB)")
+        st.error(f"{fa_icon('times-circle')} File too large: {file_size:.1f}MB (max 50MB)")
         uploaded_file = None
     elif file_size > 10:
-        st.warning(f"{lucide_icon('alert-triangle')} Large file: {file_size:.1f}MB - processing may be slow")
+        st.warning(f"{fa_icon('exclamation-triangle')} Large file: {file_size:.1f}MB - processing may be slow")
     else:
         pdf_bytes = uploaded_file.getvalue()  # Define at top level
         
@@ -205,16 +205,16 @@ if uploaded_file is not None:
         col_info, col_preview = st.columns([1, 2])
         
         with col_info:
-            st.success(f"{lucide_icon('check-circle')} PDF uploaded: {file_size:.1f}MB")
+            st.success(f"{fa_icon('check-circle')} PDF uploaded: {file_size:.1f}MB")
             
             # Get PDF info
             try:
                 pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 page_count = len(pdf_doc)
-                st.info(f"{lucide_icon('file-text')} {page_count} page{'s' if page_count != 1 else ''}")
+                st.info(f"{fa_icon('file-alt')} {page_count} page{'s' if page_count != 1 else ''}")
                 pdf_doc.close()
             except Exception as e:
-                st.warning(f"{lucide_icon('alert-triangle')} Could not read PDF info")
+                st.warning(f"{fa_icon('exclamation-triangle')} Could not read PDF info")
         
         with col_preview:
             # Show first page thumbnail
@@ -226,14 +226,14 @@ if uploaded_file is not None:
                 st.image(img_data, caption="PDF Preview (Page 1)", width=200)
                 pdf_doc.close()
             except Exception as e:
-                st.info(f"{lucide_icon('file-text')} PDF preview not available")
+                st.info(f"{fa_icon('file-alt')} PDF preview not available")
 
 # Process button
 col1, col2, col3 = st.columns([1, 1, 2])
 
 with col1:
     process_button = st.button(
-        f"{lucide_icon('search')} Detect & Crop",
+        f"{fa_icon('search')} Detect & Crop",
         disabled=(uploaded_file is None),
         use_container_width=True,
         type="primary"  # Make it prominent
@@ -241,7 +241,7 @@ with col1:
 
 with col2:
     reset_button = st.button(
-        f"{lucide_icon('rotate-ccw')} Reset",
+        f"{fa_icon('undo')} Reset",
         use_container_width=True
     )
 
@@ -259,13 +259,13 @@ if process_button and uploaded_file:
     
     try:
         # Step 1: Reading PDF
-        status_text.text(f"{lucide_icon('book-open')} Reading PDF file...")
+        status_text.text(f"{fa_icon('book')} Reading PDF file...")
         progress_bar.progress(10)
         
         pdf_bytes = uploaded_file.getvalue()
         
         # Step 2: Initializing processor
-        status_text.text(f"{lucide_icon('settings')} Setting up processing parameters...")
+        status_text.text(f"{fa_icon('cog')} Setting up processing parameters...")
         progress_bar.progress(20)
         
         processor = PDFLabelProcessor(
@@ -276,13 +276,13 @@ if process_button and uploaded_file:
         )
         
         # Step 3: Processing PDF
-        status_text.text(f"{lucide_icon('search')} Detecting label regions...")
+        status_text.text(f"{fa_icon('search')} Detecting label regions...")
         progress_bar.progress(50)
         
         cropped_img, preview_img, crop_info = processor.process_pdf(pdf_bytes)
         
         # Step 4: Finalizing
-        status_text.text(f"{lucide_icon('check-circle')} Processing complete!")
+        status_text.text(f"{fa_icon('check-circle')} Processing complete!")
         progress_bar.progress(100)
         
         # Store in session state
@@ -295,13 +295,13 @@ if process_button and uploaded_file:
         progress_bar.empty()
         status_text.empty()
         
-        st.success(f"{lucide_icon('check-circle')} Label detected: {crop_info[2]}x{crop_info[3]}px at ({crop_info[0]}, {crop_info[1]})")
+        st.success(f"{fa_icon('check-circle')} Label detected: {crop_info[2]}x{crop_info[3]}px at ({crop_info[0]}, {crop_info[1]})")
         
     except Exception as e:
         # Clear progress indicators on error
         progress_bar.empty()
         status_text.empty()
-        st.error(f"{lucide_icon('x-circle')} Processing failed: {str(e)}")
+        st.error(f"{fa_icon('times-circle')} Processing failed: {str(e)}")
         st.exception(e)
 
 # Display results
@@ -309,7 +309,7 @@ if st.session_state.processed and st.session_state.preview_img is not None:
     st.markdown("---")
     
     # Create tabs for preview and cropped result
-    tab1, tab2 = st.tabs([f"{lucide_icon('clipboard-list')} Preview with Detection", f"{lucide_icon('scissors')} Cropped Label"])
+    tab1, tab2 = st.tabs([f"{fa_icon('clipboard-list')} Preview with Detection", f"{fa_icon('cut')} Cropped Label"])
     
     with tab1:
         st.subheader("Detection Preview")
@@ -326,7 +326,7 @@ if st.session_state.processed and st.session_state.preview_img is not None:
             is_success, buffer = cv2.imencode(".png", st.session_state.cropped_img)
             if is_success:
                 st.download_button(
-                    label=f"{lucide_icon('download')} Download Cropped Label",
+                    label=f"{fa_icon('download')} Download Cropped Label",
                     data=buffer.tobytes(),
                     file_name="cropped_label.png",
                     mime="image/png",
@@ -336,7 +336,7 @@ if st.session_state.processed and st.session_state.preview_img is not None:
     # Show crop info
     if st.session_state.crop_info:
         x, y, w, h = st.session_state.crop_info
-        st.info(f"{lucide_icon('ruler')} Crop Info: Position ({x}, {y}) | Size: {w}×{h}px | Aspect Ratio: {w/h:.2f}")
+        st.info(f"{fa_icon('ruler')} Crop Info: Position ({x}, {y}) | Size: {w}×{h}px | Aspect Ratio: {w/h:.2f}")
 
 # Instructions
 if not uploaded_file:
@@ -345,18 +345,18 @@ if not uploaded_file:
     ### 📖 How to Use
     
     1. **Upload** a PDF file (max 50MB) - you'll see a preview and page count
-    2. **Click** """ + lucide_icon('settings') + """ Settings to adjust processing parameters if needed
+    2. **Click** """ + fa_icon('cog') + """ Settings to adjust processing parameters if needed
     3. **Click** the green "Detect & Crop" button to process the document
     4. **Download** the cropped label image
     
     ### 🎯 Features
     
-    - """ + lucide_icon('file-text') + """ **PDF Preview**: See thumbnail and page count before processing
-    - """ + lucide_icon('search') + """ **Smart Detection**: Automatic border detection using computer vision
-    - """ + lucide_icon('settings') + """ **Configurable Settings**: Threshold, padding, DPI, and aspect ratio options
-    - """ + lucide_icon('ruler') + """ **Progress Tracking**: Real-time progress during processing
-    - """ + lucide_icon('smartphone') + """ **Mobile Friendly**: Responsive design that works on all devices
-    - """ + lucide_icon('download') + """ **Easy Download**: One-click download of cropped labels
+    - """ + fa_icon('file-alt') + """ **PDF Preview**: See thumbnail and page count before processing
+    - """ + fa_icon('search') + """ **Smart Detection**: Automatic border detection using computer vision
+    - """ + fa_icon('cog') + """ **Configurable Settings**: Threshold, padding, DPI, and aspect ratio options
+    - """ + fa_icon('ruler') + """ **Progress Tracking**: Real-time progress during processing
+    - """ + fa_icon('mobile-alt') + """ **Mobile Friendly**: Responsive design that works on all devices
+    - """ + fa_icon('download') + """ **Easy Download**: One-click download of cropped labels
     
     ### ⚡ Tips
     

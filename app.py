@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import io
+import fitz  # PyMuPDF for PDF preview
 from label_processor import PDFLabelProcessor
 
 st.set_page_config(
@@ -15,6 +16,42 @@ st.set_page_config(
 st.markdown("""
 <style>
 .stAppHeader {visibility: hidden;}
+
+/* Enhanced CTA button styling */
+.stButton > button[data-testid="baseButton-primary"] {
+    background-color: #4CAF50 !important;
+    color: white !important;
+    border: none !important;
+    padding: 12px 24px !important;
+    font-size: 18px !important;
+    font-weight: bold !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+.stButton > button[data-testid="baseButton-primary"]:hover {
+    background-color: #45a049 !important;
+    box-shadow: 0 6px 12px rgba(76, 175, 80, 0.4) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .stColumn > div > div > div {
+        flex-direction: column !important;
+    }
+    .stButton > button {
+        width: 100% !important;
+        margin-bottom: 8px !important;
+    }
+}
+
+/* Better file uploader styling */
+.stFileUploader > div > div > div > div {
+    border: 2px dashed #4CAF50 !important;
+    border-radius: 8px !important;
+    padding: 20px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -33,38 +70,78 @@ if 'aspect_lock' not in st.session_state:
 def settings_modal():
     st.header("⚙️ Processing Parameters")
     
-    # Threshold
-    st.session_state.threshold = st.slider(
-        "Threshold",
-        min_value=150,
-        max_value=250,
-        value=st.session_state.threshold,
-        help="Adjust detection sensitivity"
-    )
+    # Threshold with help
+    col_thresh, col_help = st.columns([3, 1])
+    with col_thresh:
+        st.session_state.threshold = st.slider(
+            "Threshold",
+            min_value=150,
+            max_value=250,
+            value=st.session_state.threshold,
+            help="Adjust detection sensitivity"
+        )
+    with col_help:
+        with st.popover("ℹ️"):
+            st.markdown("""
+            **Threshold**: Controls how sensitive the label detection is.
+            - Lower values (150-180): More sensitive, may detect noise
+            - Higher values (220-250): Less sensitive, may miss faint labels
+            - Default 200: Good balance for most shipping labels
+            """)
     
-    # Padding
-    st.session_state.padding_percent = st.slider(
-        "Padding %",
-        min_value=0,
-        max_value=10,
-        value=st.session_state.padding_percent,
-        help="Add padding around detected label"
-    )
+    # Padding with help
+    col_pad, col_help = st.columns([3, 1])
+    with col_pad:
+        st.session_state.padding_percent = st.slider(
+            "Padding %",
+            min_value=0,
+            max_value=10,
+            value=st.session_state.padding_percent,
+            help="Add padding around detected label"
+        )
+    with col_help:
+        with st.popover("ℹ️"):
+            st.markdown("""
+            **Padding**: Adds extra space around the detected label.
+            - 0%: Exact crop (may cut off edges)
+            - 2%: Small buffer (recommended)
+            - 5-10%: Large buffer for safety
+            """)
     
-    # DPI
-    st.session_state.dpi = st.select_slider(
-        "DPI",
-        options=[150, 200, 250, 300, 350, 400, 450, 500, 550, 600],
-        value=st.session_state.dpi,
-        help="Resolution for PDF rendering"
-    )
+    # DPI with help
+    col_dpi, col_help = st.columns([3, 1])
+    with col_dpi:
+        st.session_state.dpi = st.select_slider(
+            "DPI",
+            options=[150, 200, 250, 300, 350, 400, 450, 500, 550, 600],
+            value=st.session_state.dpi,
+            help="Resolution for PDF rendering"
+        )
+    with col_help:
+        with st.popover("ℹ️"):
+            st.markdown("""
+            **DPI**: Image resolution for processing.
+            - 150-200: Fast, good for simple labels
+            - 300: Standard, balanced quality/speed
+            - 400-600: High quality, slower processing
+            """)
     
-    # Aspect lock
-    st.session_state.aspect_lock = st.checkbox(
-        "Lock 6:4/4:6 Aspect (auto)",
-        value=st.session_state.aspect_lock,
-        help="Automatically adjust to standard label aspect ratio"
-    )
+    # Aspect lock with help
+    col_aspect, col_help = st.columns([3, 1])
+    with col_aspect:
+        st.session_state.aspect_lock = st.checkbox(
+            "Lock 6:4/4:6 Aspect (auto)",
+            value=st.session_state.aspect_lock,
+            help="Automatically adjust to standard label aspect ratio"
+        )
+    with col_help:
+        with st.popover("ℹ️"):
+            st.markdown("""
+            **Aspect Lock**: Forces standard shipping label ratios.
+            - 6:4 (1.5:1): Horizontal labels
+            - 4:6 (1:1.5): Vertical labels
+            - Auto-adjusts detected region to fit
+            """)
     
     # Check barcode availability
     barcode_available = PDFLabelProcessor.barcode_available()
@@ -96,12 +173,51 @@ if 'crop_info' not in st.session_state:
 
 
 
-# File upload
+# File upload with validation and preview
 uploaded_file = st.file_uploader(
     "Upload PDF",
     type=['pdf'],
-    help="Select a PDF file containing a label"
+    help="Select a PDF file containing a label (max 50MB)"
 )
+
+# File validation and preview
+if uploaded_file is not None:
+    file_size = len(uploaded_file.getvalue()) / (1024 * 1024)  # Size in MB
+    
+    if file_size > 50:
+        st.error(f"❌ File too large: {file_size:.1f}MB (max 50MB)")
+        uploaded_file = None
+    elif file_size > 10:
+        st.warning(f"⚠️ Large file: {file_size:.1f}MB - processing may be slow")
+    else:
+        pdf_bytes = uploaded_file.getvalue()  # Define at top level
+        
+        # Show file info and preview
+        col_info, col_preview = st.columns([1, 2])
+        
+        with col_info:
+            st.success(f"✅ PDF uploaded: {file_size:.1f}MB")
+            
+            # Get PDF info
+            try:
+                pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                page_count = len(pdf_doc)
+                st.info(f"📄 {page_count} page{'s' if page_count != 1 else ''}")
+                pdf_doc.close()
+            except Exception as e:
+                st.warning("⚠️ Could not read PDF info")
+        
+        with col_preview:
+            # Show first page thumbnail
+            try:
+                pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                page = pdf_doc.load_page(0)
+                pix = page.get_pixmap(matrix=fitz.Matrix(0.3, 0.3))  # 30% scale for thumbnail
+                img_data = pix.tobytes("png")
+                st.image(img_data, caption="PDF Preview (Page 1)", width=200)
+                pdf_doc.close()
+            except Exception as e:
+                st.info("📄 PDF preview not available")
 
 # Process button
 col1, col2, col3 = st.columns([1, 1, 2])
@@ -110,7 +226,8 @@ with col1:
     process_button = st.button(
         "🔍 Detect & Crop",
         disabled=(uploaded_file is None),
-        use_container_width=True
+        use_container_width=True,
+        type="primary"  # Make it prominent
     )
 
 with col2:
@@ -128,33 +245,55 @@ if reset_button:
 
 # Process the PDF
 if process_button and uploaded_file:
-    with st.spinner("Processing PDF..."):
-        try:
-            # Read PDF bytes
-            pdf_bytes = uploaded_file.read()
-            
-            # Initialize processor
-            processor = PDFLabelProcessor(
-                threshold=st.session_state.threshold,
-                padding_percent=st.session_state.padding_percent,
-                dpi=st.session_state.dpi,
-                aspect_lock=st.session_state.aspect_lock
-            )
-            
-            # Process PDF
-            cropped_img, preview_img, crop_info = processor.process_pdf(pdf_bytes)
-            
-            # Store in session state
-            st.session_state.processed = True
-            st.session_state.cropped_img = cropped_img
-            st.session_state.preview_img = preview_img
-            st.session_state.crop_info = crop_info
-            
-            st.success(f"✅ Label detected: {crop_info[2]}x{crop_info[3]}px at ({crop_info[0]}, {crop_info[1]})")
-            
-        except Exception as e:
-            st.error(f"❌ Processing failed: {str(e)}")
-            st.exception(e)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Step 1: Reading PDF
+        status_text.text("📖 Reading PDF file...")
+        progress_bar.progress(10)
+        
+        pdf_bytes = uploaded_file.getvalue()
+        
+        # Step 2: Initializing processor
+        status_text.text("⚙️ Setting up processing parameters...")
+        progress_bar.progress(20)
+        
+        processor = PDFLabelProcessor(
+            threshold=st.session_state.threshold,
+            padding_percent=st.session_state.padding_percent,
+            dpi=st.session_state.dpi,
+            aspect_lock=st.session_state.aspect_lock
+        )
+        
+        # Step 3: Processing PDF
+        status_text.text("🔍 Detecting label regions...")
+        progress_bar.progress(50)
+        
+        cropped_img, preview_img, crop_info = processor.process_pdf(pdf_bytes)
+        
+        # Step 4: Finalizing
+        status_text.text("✅ Processing complete!")
+        progress_bar.progress(100)
+        
+        # Store in session state
+        st.session_state.processed = True
+        st.session_state.cropped_img = cropped_img
+        st.session_state.preview_img = preview_img
+        st.session_state.crop_info = crop_info
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.success(f"✅ Label detected: {crop_info[2]}x{crop_info[3]}px at ({crop_info[0]}, {crop_info[1]})")
+        
+    except Exception as e:
+        # Clear progress indicators on error
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ Processing failed: {str(e)}")
+        st.exception(e)
 
 # Display results
 if st.session_state.processed and st.session_state.preview_img is not None:
@@ -196,25 +335,27 @@ if not uploaded_file:
     st.markdown("""
     ### 📖 How to Use
     
-    1. **Upload** a PDF file containing a label
+    1. **Upload** a PDF file (max 50MB) - you'll see a preview and page count
     2. **Click** ⚙️ Settings to adjust processing parameters if needed
-    3. **Click** "Detect & Crop" to process the document
+    3. **Click** the green "Detect & Crop" button to process the document
     4. **Download** the cropped label image
     
     ### 🎯 Features
     
-    - Automatic border detection using computer vision
-    - Configurable threshold and padding
-    - Multiple DPI options for quality control
-    - Optional aspect ratio locking (6:4 or 4:6)
-    - Barcode-based orientation detection (when available)
+    - 📄 **PDF Preview**: See thumbnail and page count before processing
+    - 🔍 **Smart Detection**: Automatic border detection using computer vision
+    - ⚙️ **Configurable Settings**: Threshold, padding, DPI, and aspect ratio options
+    - 📏 **Progress Tracking**: Real-time progress during processing
+    - 📱 **Mobile Friendly**: Responsive design that works on all devices
+    - 💾 **Easy Download**: One-click download of cropped labels
     
     ### ⚡ Tips
     
-    - If detection fails, try adjusting the **Threshold** slider
+    - If detection fails, try adjusting the **Threshold** slider in settings
     - Use higher **DPI** for better quality (but slower processing)
     - Add **Padding** to include more area around the label
     - Enable **Aspect Lock** for standard shipping labels
+    - Large PDFs (>10MB) may take longer to process
     """)
 
 # Footer

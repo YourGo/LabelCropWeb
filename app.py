@@ -6,9 +6,9 @@ import io
 import fitz  # PyMuPDF for PDF preview
 from label_processor import PDFLabelProcessor
 
-# Helper function for Lucide icons
+# Helper function for Lucide icons (CSS-only version)
 def lucide_icon(name, size=16, color="currentColor"):
-    return f'<i data-lucide="{name}" style="width: {size}px; height: {size}px; color: {color};"></i>'
+    return f'<i class="lucide lucide-{name}" style="width: {size}px; height: {size}px; color: {color};"></i>'
 
 st.set_page_config(
     page_title="PDF Label Cropper",
@@ -16,13 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# Add Lucide icons CSS and JS
+# Add Lucide icons CSS (static version - no JavaScript needed)
 st.markdown("""
-<link rel="stylesheet" href="https://unpkg.com/lucide@latest/dist/umd/lucide.css">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<script>
-  lucide.createIcons();
-</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-static@0.344.0/font/lucide.css">
 """, unsafe_allow_html=True)
 
 # Hide Streamlit's default header (top-right buttons)

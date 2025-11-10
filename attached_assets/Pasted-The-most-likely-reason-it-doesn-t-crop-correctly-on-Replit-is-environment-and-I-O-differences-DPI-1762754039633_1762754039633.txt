@@ -1,0 +1,75 @@
+The most likely reason it “doesn’t crop correctly” on Replit is environment and I/O differences (DPI, ZBar availability, and input format), not missing functions.
+
+What’s in replitversion.py
+
+Present (good)
+
+Border detection: find_label_border:1xx
+Cut-line detection: detect_cut_line_y: ~100s
+Barcode anchoring: _anchor_rect_to_barcodes: 138
+Text/edge scoring: detect_text_orientation: 186; _edge_orientation_strength: present
+Aspect lock chooser: detect_barcode_orientation: 261
+Refiners: _refine_rect_density, _nudge_rect_by_strips, _center_rect_on_content: 398, 431, 476
+Second pass: second_pass_refine_rect: 345
+Rasterizer: pdf_to_image(pdf_bytes, dpi): 542
+Main pipeline: process_pdf(pdf_bytes): 563 (mirrors your detect_crop ordering)
+Not present (and that’s okay)
+
+auto_rotate (we disabled it in your UI too)
+A generic detect_and_crop for images (only PDF bytes are supported in Replit’s processor)
+Key differences that cause mismatches
+
+PDF input shape: Replit version expects raw PDF bytes
+
+If the web layer sends already-rasterized, low-DPI images (or a resized preview), kernels like (20,20) become too large relative to the content. That shifts/merges contours, changing the crop.
+Fix: keep using PDF bytes and rasterize at dp i=300 (or scale kernels to image size).
+ZBar (pyzbar) availability
+
+Replit often lacks the native ZBar library. Imports may succeed but decode returns nothing, removing your barcode-based orientation/anchoring signal. The pipeline still runs, but is less robust.
+Fix: install ZBar on Replit or detect-and-log when decoding is unavailable and reduce reliance on barcode scoring.
+Only processes PDFs
+
+There’s no image path/bytes entry point. If the web app feeds JPG/PNG uploads into process_pdf, it won’t work as intended. Add a process_image that decodes bytes with cv2.imdecode and then runs the same core.
+Fixed morphology sizes
+
+The pipeline uses fixed kernels (15×15, 20×20). If DPI differs, behavior changes noticeably.
+Fix: scale kernels based on image size.
+What I recommend changing in replitversion.py
+
+Add a common core and support images
+
+Factor the body of process_pdf into a _process_core(img) and call it from:
+process_pdf(pdf_bytes) → img = pdf_to_image(pdf_bytes, dpi); return _process_core(img)
+process_image(image_bytes) → arr = np.frombuffer(...); img = cv2.imdecode(...); return _process_core(img)
+Scale kernels to resolution
+
+Replace hard-coded kernels with size-relative values:
+For “edge seed” style ops: k = max(9, int(0.015*min(H,W)))
+For “connect components” in thresh path: k = max(11, int(0.02*min(H,W)))
+kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+Do the same for kx in dashed line closing: kx = max(25, int(round(W*0.06))) is fine, but if DPI varies a lot you can clamp it (e.g., min with W//8).
+Harden barcode usage
+
+Keep your zbar_decode guard, and optionally log a one-time “Barcodes unavailable — falling back to edge-only”.
+Keep DPI at 300 for PDFs
+
+Replit’s pdf_to_image uses a bytes path and your matrix-based DPI. That’s good. Just ensure the handler feeding process_pdf passes the original PDF bytes (not a pre-rendered image).
+Quick snippet for process_image + core
+
+Add:
+def process_image(self, image_bytes):
+arr = np.frombuffer(image_bytes, np.uint8)
+img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+if img is None:
+raise ValueError("Could not decode image bytes")
+return self._process_core(img)
+
+Change process_pdf to:
+def process_pdf(self, pdf_bytes):
+self.original_img = self.pdf_to_image(pdf_bytes, dpi=self.dpi)
+return self._process_core(self.original_img.copy())
+
+Move the current body of process_pdf (from “img = self.original_img.copy()” down to the return) into _process_core(img), and optionally scale the kernels there.
+Why your desktop UI “works” but Replit didn’t
+
+Your UI always rasterizes PDFs at a stable DPI and you verified zbar locally. Replit likely processed different inputs (pre-rasterized previews or different DPI) and didn’t have ZBar available. Those two factors alone change which contours win and how the top bound gets enforced.

@@ -20,13 +20,17 @@ Thumbs.db
 # Package managers
 uv.lock
 
-# Platform-specific
+# Replit-specific (NOT needed for Streamlit Cloud)
 .replit
 replit.md
+replit.nix
 
 # Development artifacts
 attached_assets/
 main.py
 
-# md
+# Documentation
 Plan.md
+
+# Streamlit cache
+.streamlit/secrets.toml
